@@ -1375,6 +1375,23 @@ BOOL WINAPI Hook_DeleteMenu(HMENU hMenu, UINT uPosition, UINT uFlags)
     return success;
 }
 
+typedef BOOL(WINAPI* Func_IsWow64Process)(HANDLE hProcess, PBOOL Wow64Process);
+
+static Func_IsWow64Process Real_IsWow64Process = NULL;
+
+BOOL WINAPI Hook_IsWow64Process(HANDLE hProcess, PBOOL Wow64Process)
+{
+    if (MsRdpEx_IsAddressInRdpExeModule(_ReturnAddress()))
+    {
+        if (Wow64Process)
+            *Wow64Process = FALSE;
+
+        return TRUE;
+    }
+    
+    return Real_IsWow64Process(hProcess, Wow64Process);
+}
+
 bool MsRdpEx_IsAddressInModule(PVOID pAddress, LPCTSTR pszModule)
 {
     bool result;
@@ -1506,6 +1523,12 @@ LONG MsRdpEx_AttachHooks()
     //MSRDPEX_DETOUR_ATTACH(Real_RegCloseKey, Hook_RegCloseKey);
 
     MSRDPEX_DETOUR_ATTACH(Real_DeleteMenu, Hook_DeleteMenu);
+
+    HMODULE hKernel32 = GetModuleHandleW(L"kernel32");
+    if (hKernel32) {
+        MSRDPEX_GETPROCADDRESS(Real_IsWow64Process, Func_IsWow64Process, hKernel32, "IsWow64Process");
+        MSRDPEX_DETOUR_ATTACH(Real_IsWow64Process, Hook_IsWow64Process);
+    }
     
     MsRdpEx_AttachSspiHooks();
     error = DetourTransactionCommit();
